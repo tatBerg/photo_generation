@@ -108,6 +108,8 @@ docker compose logs -f worker
 
 Не создавай больше одного экземпляра `photo-generation-bot`: Telegram polling должен выполняться одним процессом. `photo-generation-worker` в Blueprint запускается в 4 экземплярах с двумя задачами на экземпляр, то есть максимум восемь генераций одновременно.
 
+`photo-generation-cleanup` запускается каждый час и удаляет в R2 исходные и готовые изображения вместе с завершёнными job старше `RESULT_TTL_HOURS` (по умолчанию 24 часа). Bucket не делай публичным.
+
 ## Где взять ключи
 
 1. Telegram: открой в Telegram `@BotFather`, отправь `/newbot`, задай имя `AI-фотобудка` и username, который заканчивается на `bot`. Полученный токен запиши в `TELEGRAM_BOT_TOKEN`.

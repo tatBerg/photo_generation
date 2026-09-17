@@ -111,6 +111,30 @@ services:
       - key: S3_SECRET_ACCESS_KEY
         sync: false
 
+  - type: cron
+    name: photo-generation-cleanup
+    runtime: docker
+    plan: 0.5c-512mb
+    schedule: "0 * * * *"
+    dockerCommand: python -m photo_generation.cleanup
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: photo-generation-db
+          property: connectionString
+      - key: MEDIA_DIR
+        value: /tmp/photo-generation
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: RESULT_TTL_HOURS
+        value: "24"
+
 databases:
   - name: photo-generation-db
     plan: 0.5c-1g

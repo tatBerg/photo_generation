@@ -45,5 +45,11 @@ class MediaStorage:
             return destination
         return Path(stored)
 
+    def delete(self, stored: str) -> None:
+        if self.client:
+            self.client.delete_object(Bucket=self.bucket, Key=stored)
+            return
+        Path(stored).unlink(missing_ok=True)
+
     def _object_key(self, key: str) -> str:
         return f"{self.prefix}/{key.lstrip('/')}" if self.prefix else key.lstrip("/")
