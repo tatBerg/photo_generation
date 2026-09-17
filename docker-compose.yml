@@ -1,0 +1,81 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://photo_generation:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/photo_generation
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_DIR: /app/media
+    command: uvicorn photo_generation.api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - media:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://photo_generation:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/photo_generation
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_DIR: /app/media
+    command: python -m photo_generation.worker
+    volumes:
+      - media:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://photo_generation:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/photo_generation
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_DIR: /app/media
+    command: python -m photo_generation.bot
+    volumes:
+      - media:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: photo_generation
+      POSTGRES_USER: photo_generation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U photo_generation -d photo_generation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  media:
+  postgres_data:
