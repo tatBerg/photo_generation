@@ -44,37 +44,49 @@ async def main() -> None:
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
     bot = Bot(settings.telegram_bot_token)
+    recovered = await asyncio.to_thread(queue.recover_pending)
     logger.info(
-        "Worker started: mode=%s, luxury=%s, celebrity_with_photo=%s, composite=%s",
+        "Worker started: concurrency=%s, recovered=%s, mode=%s, luxury=%s, celebrity_with_photo=%s, composite=%s",
+        settings.worker_concurrency,
+        recovered,
         "mock" if settings.mock_mode else "live",
         service.router.choose("luxury").name,
         service.router.choose("celebrity", has_reference=True).name,
         service.router.choose("composite", has_reference=True).name,
     )
-    while True:
-        try:
-            item = await asyncio.to_thread(queue.next, 10)
-        except Exception:
-            logger.exception("Redis queue is unavailable; retrying in 5 seconds")
-            await asyncio.sleep(5)
-            continue
-        if not item:
-            continue
-        try:
-            output_path = await asyncio.to_thread(service.process_job, item.job_id)
-            await bot.send_photo(
-                item.telegram_id,
-                FSInputFile(output_path),
-                caption="Готово ✨",
-                reply_markup=result_menu(),
-            )
-        except Exception as error:
-            logger.exception("Job %s failed", item.job_id)
-            await bot.send_message(
-                item.telegram_id,
-                user_error_message(error),
-                reply_markup=result_menu(),
-            )
+    async def consume() -> None:
+        while True:
+            try:
+                item = await asyncio.to_thread(queue.next, 10)
+            except Exception:
+                logger.exception("Redis queue is unavailable; retrying in 5 seconds")
+                await asyncio.sleep(5)
+                continue
+            if not item:
+                continue
+            try:
+                output_path = await asyncio.to_thread(service.process_job, item.job.job_id)
+                if output_path:
+                    await bot.send_photo(
+                        item.job.telegram_id,
+                        FSInputFile(output_path),
+                        caption="Готово ✨",
+                        reply_markup=result_menu(),
+                    )
+            except Exception as error:
+                logger.exception("Job %s failed", item.job.job_id)
+                await bot.send_message(
+                    item.job.telegram_id,
+                    user_error_message(error),
+                    reply_markup=result_menu(),
+                )
+            finally:
+                try:
+                    await asyncio.to_thread(queue.acknowledge, item)
+                except Exception:
+                    logger.exception("Could not acknowledge job %s; it will be recovered", item.job.job_id)
+
+    await asyncio.gather(*(consume() for _ in range(settings.worker_concurrency)))
 
 
 if __name__ == "__main__":

@@ -48,7 +48,15 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
-engine = create_engine(get_settings().database_url, future=True)
+settings = get_settings()
+engine = create_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=True,
+    pool_size=settings.database_pool_size,
+    max_overflow=settings.database_max_overflow,
+    pool_timeout=settings.database_pool_timeout_seconds,
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

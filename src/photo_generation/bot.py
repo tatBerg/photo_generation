@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -61,7 +62,7 @@ def build_router(settings: Settings) -> Router:
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext) -> None:
         await state.clear()
-        service.get_or_create_user(message.from_user.id)
+        await asyncio.to_thread(service.get_or_create_user, message.from_user.id)
         await message.answer(
             f"Привет! Это {settings.bot_name}. Выбери сценарий и отправь фотографию хорошего качества.",
             reply_markup=menu(),
@@ -229,13 +230,21 @@ def build_router(settings: Settings) -> Router:
 
 
 async def create_and_enqueue(message, state, mode, prompt, main_path, reference_path, job_id, service, queue):
+    charge_type = None
+    job_created = False
     try:
-        allowed, charge_type = service.reserve_generation(message.from_user.id)
+        allowed, charge_type = await asyncio.to_thread(service.reserve_generation, message.from_user.id)
         if not allowed:
             await state.clear()
-            await message.answer("Бесплатная генерация на сегодня закончилась.", reply_markup=menu())
+            text = (
+                "У тебя уже есть генерация в очереди. Дождись результата, затем можно будет создать новую."
+                if charge_type == "busy"
+                else "Бесплатная генерация на сегодня закончилась."
+            )
+            await message.answer(text, reply_markup=menu())
             return
-        service.create_job(
+        await asyncio.to_thread(
+            service.create_job,
             message.from_user.id,
             mode,
             prompt,
@@ -244,11 +253,24 @@ async def create_and_enqueue(message, state, mode, prompt, main_path, reference_
             job_id=job_id,
             paid=charge_type == "credit",
         )
-        queue.enqueue(job_id, message.from_user.id)
+        job_created = True
+        queued = await asyncio.to_thread(queue.enqueue, job_id, message.from_user.id)
+        if not queued:
+            await asyncio.to_thread(service.cancel_queued_job, job_id)
+            await asyncio.to_thread(service.refund_generation, message.from_user.id, charge_type)
+            await state.clear()
+            await message.answer(
+                "Сейчас слишком много запросов. Попробуй снова через несколько минут.", reply_markup=menu()
+            )
+            return
         await state.clear()
         await message.answer("Фото принято и поставлено в очередь. Я пришлю результат, когда он будет готов.")
     except Exception:
         logger.exception("Could not enqueue photo generation job")
+        if job_created:
+            await asyncio.to_thread(service.cancel_queued_job, job_id)
+        if charge_type in {"credit", "free"}:
+            await asyncio.to_thread(service.refund_generation, message.from_user.id, charge_type)
         await state.clear()
         await message.answer("Не удалось поставить фото в очередь. Проверь Redis и попробуй ещё раз.")
 
@@ -268,8 +290,6 @@ async def run_bot(settings: Settings) -> None:
 
 
 if __name__ == "__main__":
-    import asyncio
-
     from .config import get_settings
 
     asyncio.run(run_bot(get_settings()))

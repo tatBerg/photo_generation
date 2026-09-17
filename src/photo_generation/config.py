@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     max_upload_mb: int = 20
     result_ttl_hours: int = 24
     public_base_url: str = "http://localhost:8000"
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_timeout_seconds: int = 30
+    worker_concurrency: int = 2
+    max_queue_size: int = 500
+    max_active_jobs_per_user: int = 1
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

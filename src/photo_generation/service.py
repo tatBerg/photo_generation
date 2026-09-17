@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from .config import Settings
 from .db import Job, SessionLocal, User
@@ -31,6 +31,14 @@ class GenerationService:
                 user = User(telegram_id=telegram_id)
                 session.add(user)
                 session.flush()
+            active_jobs = session.scalar(
+                select(func.count()).select_from(Job).where(
+                    Job.telegram_id == telegram_id,
+                    Job.status.in_(("queued", "processing")),
+                )
+            )
+            if active_jobs >= self.settings.max_active_jobs_per_user:
+                return False, "busy"
             today = datetime.now(UTC).date().isoformat()
             if user.credits > 0:
                 user.credits -= 1
@@ -81,16 +89,31 @@ class GenerationService:
             session.commit()
         return job_id
 
-    def process_job(self, job_id: str) -> Path:
+    def cancel_queued_job(self, job_id: str) -> None:
+        """Mark a job as failed when it could not be safely put on Redis."""
+        with SessionLocal() as session:
+            session.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == "queued")
+                .values(status="failed", error_message="Could not enqueue job")
+            )
+            session.commit()
+
+    def process_job(self, job_id: str) -> Path | None:
         with SessionLocal() as session:
             job = session.get(Job, job_id)
             if not job:
                 raise ValueError(f"Unknown job: {job_id}")
-            job.status = "processing"
             reference_path = Path(job.reference_path) if job.reference_path else None
             provider = self.router.choose(job.mode, has_reference=reference_path is not None)
-            job.provider = provider.name
+            claimed = session.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == "queued")
+                .values(status="processing", provider=provider.name)
+            )
             session.commit()
+            if claimed.rowcount != 1:
+                return None
             main_path = Path(job.main_path)
 
         try:
