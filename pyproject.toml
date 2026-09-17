@@ -19,6 +19,7 @@ dependencies = [
   "fal-client>=0.7,<1",
   "pillow>=11,<12",
   "python-multipart>=0.0.20,<1",
+  "boto3>=1.35,<2",
 ]
 
 [project.optional-dependencies]

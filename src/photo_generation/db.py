@@ -49,8 +49,11 @@ class Payment(Base):
 
 
 settings = get_settings()
+database_url = settings.database_url
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 engine = create_engine(
-    settings.database_url,
+    database_url,
     future=True,
     pool_pre_ping=True,
     pool_size=settings.database_pool_size,

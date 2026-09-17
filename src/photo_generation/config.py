@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     worker_concurrency: int = 2
     max_queue_size: int = 500
     max_active_jobs_per_user: int = 1
+    s3_endpoint_url: str = ""
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_region: str = "auto"
+    s3_prefix: str = "photo-generation"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

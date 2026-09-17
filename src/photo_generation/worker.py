@@ -81,6 +81,7 @@ async def main() -> None:
                     reply_markup=result_menu(),
                 )
             finally:
+                await asyncio.to_thread(service.cleanup_workspace, item.job.job_id)
                 try:
                     await asyncio.to_thread(queue.acknowledge, item)
                 except Exception:

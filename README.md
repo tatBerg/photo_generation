@@ -97,6 +97,17 @@ docker compose logs -f worker
 
 Значение `WORKER_CONCURRENCY × число worker-контейнеров` подбирай по лимитам OpenAI/fal.ai и фактическому времени генерации. Не повышай его, пока не проверишь provider rate limits и не сделаешь пробный запуск на 20–50 одновременных задачах. Очередь сохраняется в Redis с AOF, а неподтверждённые задачи возвращаются в обработку после перезапуска worker.
 
+## Render + Cloudflare R2
+
+Для Render локальная папка с изображениями не подходит: bot и worker работают в разных контейнерах. При заданных переменных `S3_*` бот сохраняет загруженные изображения в S3-совместимое хранилище, а worker скачивает их только на время генерации. Cloudflare R2 поддерживает этот S3 API.
+
+1. В Cloudflare открой **R2 → Create bucket**, например `photo-generation-media`.
+2. В **R2 → Manage API Tokens** создай токен **Object Read & Write** только для этого bucket. Сохрани endpoint, Access Key ID и Secret Access Key.
+3. В Render выбери **New → Blueprint**, укажи репозиторий. Файл `render.yaml` создаст API, один polling-бот, четыре worker-экземпляра, Postgres и Key Value.
+4. При первом создании Blueprint введи значения секретов: `TELEGRAM_BOT_TOKEN`, ключи AI-провайдеров и все `S3_*`. Значение `S3_REGION` оставь `auto` (это значение по умолчанию в приложении).
+
+Не создавай больше одного экземпляра `photo-generation-bot`: Telegram polling должен выполняться одним процессом. `photo-generation-worker` в Blueprint запускается в 4 экземплярах с двумя задачами на экземпляр, то есть максимум восемь генераций одновременно.
+
 ## Где взять ключи
 
 1. Telegram: открой в Telegram `@BotFather`, отправь `/newbot`, задай имя `AI-фотобудка` и username, который заканчивается на `bot`. Полученный токен запиши в `TELEGRAM_BOT_TOKEN`.

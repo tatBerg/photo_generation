@@ -1,0 +1,119 @@
+services:
+  - type: keyvalue
+    name: photo-generation-queue
+    plan: 256mb
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList: []
+
+  - type: web
+    name: photo-generation-api
+    runtime: docker
+    plan: 0.5c-512mb
+    dockerCommand: uvicorn photo_generation.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: photo-generation-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: photo-generation-queue
+          type: keyvalue
+          property: connectionString
+      - key: MEDIA_DIR
+        value: /tmp/photo-generation
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: worker
+    name: photo-generation-bot
+    runtime: docker
+    plan: 0.5c-512mb
+    dockerCommand: python -m photo_generation.bot
+    maxShutdownDelaySeconds: 300
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: photo-generation-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: photo-generation-queue
+          type: keyvalue
+          property: connectionString
+      - key: MEDIA_DIR
+        value: /tmp/photo-generation
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: MOCK_MODE
+        value: "false"
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: worker
+    name: photo-generation-worker
+    runtime: docker
+    plan: 0.5c-512mb
+    numInstances: 4
+    dockerCommand: python -m photo_generation.worker
+    maxShutdownDelaySeconds: 300
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: photo-generation-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: photo-generation-queue
+          type: keyvalue
+          property: connectionString
+      - key: MEDIA_DIR
+        value: /tmp/photo-generation
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: MOCK_MODE
+        value: "false"
+      - key: WORKER_CONCURRENCY
+        value: "2"
+      - key: MAX_QUEUE_SIZE
+        value: "500"
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+databases:
+  - name: photo-generation-db
+    plan: 0.5c-1g
+    databaseName: photo_generation
+    user: photo_generation
+    region: singapore

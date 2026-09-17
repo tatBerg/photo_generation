@@ -1,3 +1,4 @@
+import shutil
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,12 +8,14 @@ from sqlalchemy import func, select, update
 from .config import Settings
 from .db import Job, SessionLocal, User
 from .providers import ProviderRouter
+from .storage import MediaStorage
 
 
 class GenerationService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.router = ProviderRouter(settings)
+        self.storage = MediaStorage(settings)
         Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
 
     def get_or_create_user(self, telegram_id: int) -> User:
@@ -114,17 +117,24 @@ class GenerationService:
             session.commit()
             if claimed.rowcount != 1:
                 return None
-            main_path = Path(job.main_path)
+            workspace = Path(self.settings.media_dir) / "work" / job_id
+            main_path = self.storage.materialize(job.main_path, workspace / "main.jpg")
+            reference_path = (
+                self.storage.materialize(job.reference_path, workspace / "reference.jpg")
+                if job.reference_path
+                else None
+            )
 
         try:
             result = provider.edit(job.prompt, main_path, reference_path)
-            output_path = Path(self.settings.media_dir) / job_id / "result.jpg"
+            output_path = workspace / "result.jpg"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(result)
+            stored_output = self.storage.store(output_path, f"results/{job_id}.jpg")
             with SessionLocal() as session:
                 job = session.get(Job, job_id)
                 job.status = "completed"
-                job.output_path = str(output_path)
+                job.output_path = stored_output
                 job.completed_at = datetime.now(UTC)
                 session.commit()
             return output_path
@@ -150,3 +160,6 @@ class GenerationService:
                     job.error_message = str(error)[:2000]
                 session.commit()
             raise
+
+    def cleanup_workspace(self, job_id: str) -> None:
+        shutil.rmtree(Path(self.settings.media_dir) / "work" / job_id, ignore_errors=True)

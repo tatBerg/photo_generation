@@ -22,6 +22,7 @@ from .db import Payment, SessionLocal, User, init_db
 from .prompts import SCENES, celebrity_prompt, composite_prompt, luxury_prompt
 from .queue import JobQueue
 from .service import GenerationService
+from .storage import MediaStorage
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def build_router(settings: Settings) -> Router:
     router = Router()
     service = GenerationService(settings)
     queue = JobQueue(settings)
+    storage = MediaStorage(settings)
 
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext) -> None:
@@ -141,7 +143,9 @@ def build_router(settings: Settings) -> Router:
         try:
             telegram_file = await message.bot.get_file(photo.file_id)
             await message.bot.download_file(telegram_file.file_path, destination=path)
-            return path
+            stored = await asyncio.to_thread(storage.store, path, f"uploads/{job_id}/{slot}.jpg")
+            path.unlink(missing_ok=True)
+            return Path(stored)
         except Exception:
             logger.exception("Could not download Telegram photo")
             await message.answer("Не удалось скачать фото. Попробуй отправить его ещё раз.")
@@ -248,8 +252,8 @@ async def create_and_enqueue(message, state, mode, prompt, main_path, reference_
             message.from_user.id,
             mode,
             prompt,
-            main_path,
-            reference_path,
+            str(main_path),
+            str(reference_path) if reference_path else None,
             job_id=job_id,
             paid=charge_type == "credit",
         )
